@@ -6,7 +6,7 @@ test('existing coffee project exports as WebM with VP8/Opus',async({page})=>{
  await expect(page.getByRole('status')).toHaveText('プロジェクトを開きました。');
  await expect(page.getByRole('heading',{name:'ひと息のコーヒー時間',exact:true})).toBeVisible();
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'WebMを書き出す',exact:true}).click();
- const file=await download;expect(file.suggestedFilename()).toBe('video.webm');await file.saveAs('examples/coffee-break/coffee-break.webm');
+ const file=await download;expect(file.suggestedFilename()).toBe('ひと息のコーヒー時間.webm');await file.saveAs('examples/coffee-break/coffee-break.webm');
  const result=await page.evaluate(async()=>{
   const load=eval('(url)=>import(url)');const {Input,BlobSource,WEBM}=await load('/tests/browser-tools.ts');
   const video=document.querySelector('video[aria-label="書き出した動画"]') as HTMLVideoElement;

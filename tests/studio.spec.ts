@@ -93,7 +93,8 @@ test('silent export, unsupported codec, cancellation and invalid project',async(
 test('only captions can be edited, and a whole long PDF project opens as one flow',async({page})=>{
  await page.goto('/?sample=demo');await expect(page.getByText('プレビュー準備完了',{exact:true})).toBeVisible();
  const fields=await page.locator('main input:not([type=file]),main textarea,main select').evaluateAll(es=>es.map(e=>e.getAttribute('aria-label')));
- expect(fields.filter(f=>f!=='プレビューの再生位置').every(f=>/^字幕/.test(f!))).toBe(true);
+ // Besides the captions, only the player's own position and volume can be set.
+ expect(fields.filter(f=>f!=='プレビューの再生位置'&&f!=='音量').every(f=>/^字幕/.test(f!))).toBe(true);
  for(const label of ['タイトル','表示時間','切り替え','表示方法','動き','画像を選ぶ','音声を選ぶ','PDFを読み込む','プロジェクト名'])await expect(page.getByLabel(label,{exact:true})).toHaveCount(0);
  for(const name of ['＋ スライドを追加','削除','PDFを保存'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
  await expect(page.getByRole('region',{name:'要素ごとの動き'})).toHaveCount(0);

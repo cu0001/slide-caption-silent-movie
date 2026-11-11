@@ -46,10 +46,21 @@ export function parsePcmWav(bytes: ArrayBuffer) {
   }
   return {sampleRate:f.rate,channels:f.channels,length,samples,duration:length/f.rate};
 }
-export async function loadPcmWav(src: string, context: BaseAudioContext) {
+async function decode(src: string) {
   const response=await fetch(src);if(!response.ok) throw new Error('WAV音声を読み込めません。');
   const pcm=parsePcmWav(await response.arrayBuffer());
-  const buffer=context.createBuffer(pcm.channels,pcm.length,pcm.sampleRate);
+  const buffer=new AudioBuffer({numberOfChannels:pcm.channels,length:pcm.length,sampleRate:pcm.sampleRate});
   pcm.samples.forEach((samples,ch)=>buffer.copyToChannel(samples,ch));
   return buffer;
+}
+// Reading every sample of a long audio file takes seconds, and play, export and open all ask for the same one.
+// Only the latest audio is kept: an AudioBuffer belongs to no context, so each caller can use it as is.
+let latest: {src:string;buffer:Promise<AudioBuffer>} | null = null;
+export function loadPcmWav(src: string) {
+  if (latest?.src !== src) {
+    const entry = {src, buffer: decode(src)};
+    entry.buffer.catch(() => {if (latest === entry) latest = null;});
+    latest = entry;
+  }
+  return latest.buffer;
 }

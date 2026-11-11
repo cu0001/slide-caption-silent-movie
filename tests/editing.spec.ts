@@ -91,6 +91,17 @@ test('a late startup response cannot overwrite an opened project or its edits',a
  await expect(page.getByRole('status')).toHaveText('プロジェクトを開きました。');
 });
 
+// The dev server answers a missing file with index.html and status 200.
+test('a missing startup project or sample shows the guidance, not a JSON parse error',async({page})=>{
+ const html={status:200,contentType:'text/html',body:'<!doctype html><html></html>'};
+ await page.route('**/examples/startup/startup.json',route=>route.fulfill(html));
+ await page.goto('/');
+ await expect(page.getByRole('status')).toHaveText('起動時のプロジェクトがありません。「開く」でプロジェクトを読み込んでください。');
+ await page.route('**/examples/coffee-pdf-project.json',route=>route.fulfill(html));
+ await page.goto('/?sample=pdf');
+ await expect(page.getByRole('status')).toHaveText('サンプルを読み込めません。');
+});
+
 test('the last selected file wins even if an earlier file finishes later',async({page})=>{
  await page.addInitScript(()=>{
   const original=File.prototype.text;

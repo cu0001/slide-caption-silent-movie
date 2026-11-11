@@ -49,3 +49,51 @@ export function withDuration(s:Slide,duration:number):Slide{
  if(s.captions)next.captions=s.captions.filter(c=>c.start<duration-.05).map(c=>({...c,duration:round(Math.max(.1,Math.min(c.duration,duration-c.start)))}));
  return next;
 }
+const count=(text:string)=>Array.from(text).length;
+/** Puts an empty caption at `index` (0 = first), right after the one above it. Captions shown from then on move back and the slide grows by the added time. */
+export function insertCaption(s:Slide,index:number):Slide{
+ const captions=s.captions??[];
+ if(captions.length>=MAX_CAPTIONS)throw new Error(`字幕は1スライド${MAX_CAPTIONS}個までです。`);
+ const added=MIN+GAP,previous=captions[index-1];
+ if(s.duration+added>60)throw new Error('字幕を足すと、このスライドが上限の60秒を超えます。ほかの字幕を短くするか減らしてください。');
+ const start=round(previous?previous.start+previous.duration+GAP:Math.min(LEAD,captions[0]?.start??LEAD));
+ const next=withDuration(s,round(s.duration+added));
+ // Timing is set by hand here, so the list order need not be the order on screen: move by time, not by position.
+ const later=(c:Caption)=>c.start>=start-.005?{...c,start:round(c.start+added)}:c;
+ next.captions=[...captions.slice(0,index).map(later),{text:'',start,duration:MIN},...captions.slice(index).map(later)];
+ return next;
+}
+/** Where to cut a caption: the cursor when it stands inside the text, else the punctuation nearest the middle, else the middle. */
+function splitPoint(text:string,cursor?:number){
+ const usable=(at:number)=>at>0&&at<text.length&&text.slice(0,at).trim()!==''&&text.slice(at).trim()!=='';
+ if(cursor!==undefined&&usable(cursor))return cursor;
+ const breaks=[...text.matchAll(/[、。！？!?，,．\n]+/g)].map(m=>m.index+m[0].length).filter(usable);
+ if(breaks.length)return breaks.reduce((best,at)=>Math.abs(at-text.length/2)<Math.abs(best-text.length/2)?at:best);
+ const chars=Array.from(text.trim());
+ if(chars.length<2)throw new Error('1文字の字幕は分けられません。');
+ // Counted from the end: searching for the second half would find an earlier copy of it ("わくわく").
+ return text.trimEnd().length-chars.slice(Math.ceil(chars.length/2)).join('').length;
+}
+/** A caption's time as typed in the editor, kept inside the slide and to 1/100 s so 5.3 − 5.2 is not 0.0999…. */
+export function fitCaption(c:Caption,slideDuration:number):Caption{
+ const start=round(Math.max(0,Math.min(slideDuration-.1,c.start)));
+ return{...c,start,duration:round(Math.max(.1,Math.min(c.duration,slideDuration-start)))};
+}
+/** Cuts one caption in two; each half gets a share of the time in proportion to its length. */
+export function splitCaption(s:Slide,index:number,cursor?:number):Slide{
+ const captions=s.captions??[],c=captions[index];
+ if(captions.length>=MAX_CAPTIONS)throw new Error(`字幕は1スライド${MAX_CAPTIONS}個までです。`);
+ const at=splitPoint(c.text,cursor),first=c.text.slice(0,at).trim(),second=c.text.slice(at).trim();
+ if(c.duration<.2)throw new Error('表示時間が短すぎて分けられません。');
+ const share=round(Math.max(.1,Math.min(c.duration-.1,c.duration*count(first)/(count(first)+count(second)))));
+ return{...s,captions:[...captions.slice(0,index),{text:first,start:c.start,duration:share},{text:second,start:round(c.start+share),duration:round(c.duration-share)},...captions.slice(index+1)]};
+}
+/** Joins a caption with the one below it; the result is shown from where the earlier of the two starts to where the later one ends. */
+export function mergeCaptions(s:Slide,index:number):Slide{
+ const captions=s.captions??[],a=captions[index],b=captions[index+1];
+ if(!b)throw new Error('下に字幕がありません。');
+ const text=a.text+b.text;
+ if(count(text)>MAX_CAPTION_LENGTH)throw new Error(`つなぐと${MAX_CAPTION_LENGTH}文字を超えます。先に文を短くしてください。`);
+ const start=Math.min(a.start,b.start);
+ return{...s,captions:[...captions.slice(0,index),{text,start,duration:round(Math.max(a.start+a.duration,b.start+b.duration)-start)},...captions.slice(index+2)]};
+}

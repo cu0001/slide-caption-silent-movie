@@ -1,12 +1,17 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {FPS,type Slide} from './model';
-import {timeCaptions,withDuration,captionTextError,overlappingCaptions,MAX_CAPTIONS,MAX_CAPTION_LENGTH,type Caption} from './captions';
+import {timeCaptions,withDuration,captionTextError,overlappingCaptions,insertCaption,splitCaption,mergeCaptions,fitCaption,MAX_CAPTIONS,MAX_CAPTION_LENGTH,type Caption} from './captions';
 // The only thing edited in the app: the selected slide's captions (text and timing). A new set of lines is timed at
 // reading speed and lengthens the slide when needed.
-export function CaptionEditor({slide,update,seek,disabled}:{slide:Slide;update:(patch:Partial<Slide>)=>void;seek:(frame:number)=>void;disabled:boolean}){
+export function CaptionEditor({slide,update,seek,disabled,active}:{slide:Slide;update:(patch:Partial<Slide>,merge?:string)=>void;seek:(frame:number)=>void;disabled:boolean;active:number}){
  const captions=slide.captions??[];
  const overlaps=overlappingCaptions(captions);
  const [error,setError]=useState('');
+ // What went wrong with adding, splitting or joining, shown at the caption it was asked on.
+ const [problem,setProblem]=useState<{index:number;text:string}|null>(null);
+ const list=useRef<HTMLElement>(null),focusNext=useRef<number|null>(null);
+ const field=(i:number)=>list.current?.querySelector<HTMLTextAreaElement>(`[aria-label="字幕の文 ${i+1}"]`);
+ useEffect(()=>{if(focusNext.current!==null){field(focusNext.current)?.focus();focusNext.current=null;}});
  const captionText=captions.map(c=>c.text).join('\n');
  const [draft,setDraft]=useState(captionText);
  // Text edits and deletions update the rewrite draft; timing edits keep an unfinished draft.
@@ -18,19 +23,32 @@ export function CaptionEditor({slide,update,seek,disabled}:{slide:Slide;update:(
   setError('');
   } catch(e) {setError(e instanceof Error?e.message:String(e));}
  }
- function patch(i:number,p:Partial<Caption>){update({captions:captions.map((c,j)=>j===i?{...c,...p}:c)});}
+ // `merge` names a run of edits (typing in one field) that undo takes back in one step.
+ function patch(i:number,p:Partial<Caption>,merge:string){update({captions:captions.map((c,j)=>j===i?{...c,...p}:c)},`${merge}:${i}`);}
+ // Adding a caption lengthens the slide, so the whole slide is replaced.
+ function reshape(i:number,make:()=>Slide,focus?:number){
+  try {update(make());setProblem(null);if(focus!==undefined)focusNext.current=focus;}
+  catch(e) {setProblem({index:i,text:e instanceof Error?e.message:String(e)});}
+ }
  function confirm(c:Caption){
   const first=Math.ceil(c.start*FPS),last=Math.ceil((c.start+c.duration)*FPS)-1;
   const target=Math.round((c.start+Math.min(.3,c.duration/2))*FPS);
   seek(Math.min(last,Math.max(first,target)));
  }
- return <section className="caption-editor" aria-label="字幕の編集">
-  {captions.map((c,i)=><div className="caption-item" key={i}>
-   <label>字幕 {i+1}<textarea aria-label={`字幕の文 ${i+1}`} rows={2} aria-invalid={Boolean(captionTextError(c.text))} aria-describedby={captionTextError(c.text)?`caption-error-${i}`:undefined} maxLength={MAX_CAPTION_LENGTH} value={c.text} disabled={disabled} onChange={e=>patch(i,{text:e.target.value})}/></label>
+ return <section ref={list} className="caption-editor" aria-label="字幕の編集">
+  {captions.map((c,i)=><div className="caption-item" key={i} aria-current={active===i||undefined}>
+   <label><span className="caption-head">字幕 {i+1}<small className={Array.from(c.text).length>MAX_CAPTION_LENGTH-20?'length near':'length'}>{Array.from(c.text).length} / {MAX_CAPTION_LENGTH}</small></span><textarea onFocus={()=>confirm(c)} aria-label={`字幕の文 ${i+1}`} rows={2} aria-invalid={Boolean(captionTextError(c.text))} aria-describedby={captionTextError(c.text)?`caption-error-${i}`:undefined} maxLength={MAX_CAPTION_LENGTH} value={c.text} disabled={disabled} onChange={e=>patch(i,{text:e.target.value},'text')}/></label>
    {captionTextError(c.text)&&<p id={`caption-error-${i}`} className="warning" role="alert">{captionTextError(c.text)}</p>}
    {overlaps.has(i)&&<p id={`caption-overlap-${i}`} className="warning" role="alert">ほかの字幕と表示時間が重なっています。開始時刻か表示秒数を調整してください。</p>}
-   <div className="timing"><label>開始<input aria-label={`字幕の開始 ${i+1}`} aria-invalid={overlaps.has(i)} aria-describedby={overlaps.has(i)?`caption-overlap-${i}`:undefined} type="number" min={0} max={slide.duration-.1} step={.1} value={c.start} disabled={disabled} onChange={e=>{const start=Math.max(0,Math.min(slide.duration-.1,Number(e.target.value)));patch(i,{start,duration:Math.min(c.duration,slide.duration-start)});}}/>秒</label><label>表示<input aria-label={`字幕の秒数 ${i+1}`} aria-invalid={overlaps.has(i)} aria-describedby={overlaps.has(i)?`caption-overlap-${i}`:undefined} type="number" min={.1} max={slide.duration-c.start} step={.1} value={c.duration} disabled={disabled} onChange={e=>patch(i,{duration:Math.max(.1,Math.min(slide.duration-c.start,Number(e.target.value)))})}/>秒</label>
-    <button className="link" disabled={disabled} onClick={()=>confirm(c)}>確認</button><button className="link" aria-label={`字幕を削除 ${i+1}`} disabled={disabled} onClick={()=>update({captions:captions.filter((_,j)=>j!==i)})}>削除</button></div>
+   <div className="timing"><label>開始<input aria-label={`字幕の開始 ${i+1}`} aria-invalid={overlaps.has(i)} aria-describedby={overlaps.has(i)?`caption-overlap-${i}`:undefined} type="number" min={0} max={slide.duration-.1} step={.1} value={c.start} disabled={disabled} onChange={e=>patch(i,fitCaption({...c,start:Number(e.target.value)},slide.duration),'start')}/>秒</label><label>表示<input aria-label={`字幕の秒数 ${i+1}`} aria-invalid={overlaps.has(i)} aria-describedby={overlaps.has(i)?`caption-overlap-${i}`:undefined} type="number" min={.1} max={slide.duration-c.start} step={.1} value={c.duration} disabled={disabled} onChange={e=>patch(i,fitCaption({...c,duration:Number(e.target.value)},slide.duration),'duration')}/>秒</label>
+    <button className="link" title="プレビューをこの字幕の位置に移します" disabled={disabled} onClick={()=>confirm(c)}>確認</button></div>
+   {problem?.index===i&&<p className="warning" role="alert">{problem.text}</p>}
+   <div className="caption-actions">
+    <button className="link" aria-label={`字幕 ${i+1} を分ける`} title="カーソルの位置で2つに分けます。カーソルがなければ、まん中に近い句読点で分けます" disabled={disabled} onClick={()=>reshape(i,()=>splitCaption(slide,i,field(i)?.selectionStart))}>分ける</button>
+    {i<captions.length-1&&<button className="link" aria-label={`字幕 ${i+1} を下の字幕とつなぐ`} disabled={disabled} onClick={()=>reshape(i,()=>mergeCaptions(slide,i))}>下とつなぐ</button>}
+    <button className="link" aria-label={`字幕 ${i+1} の下に追加`} disabled={disabled} onClick={()=>reshape(i,()=>insertCaption(slide,i+1),i+1)}>下に追加</button>
+    <button className="link" aria-label={`字幕を削除 ${i+1}`} disabled={disabled} onClick={()=>{setProblem(null);update({captions:captions.filter((_,j)=>j!==i)});}}>削除</button>
+   </div>
   </div>)}
   {!captions.length&&<p className="hint">このスライドには字幕がありません。</p>}
   <details className="rewrite" open={!captions.length}>
