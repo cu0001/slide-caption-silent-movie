@@ -16,6 +16,8 @@ export type Slide = { id: string; eyebrow: string; title: string; body: string; 
 export type Project = { version: 1; name: string; slides: Slide[]; audio: { src: string; name: string; start: number; volume: number } | null };
 export const frames = (slide: Slide) => Math.round(slide.duration * FPS);
 export const totalFrames = (p: Project) => p.slides.reduce((n, s) => n + frames(s), 0);
+/** A length or position as 分 and 秒: whole seconds, rounded down like the player's own clock, so the two never disagree (and 59.6 is not "60秒"). */
+export const clock=(seconds:number)=>{const whole=Math.floor(seconds+1e-9);return `${Math.floor(whole/60)}分${String(whole%60).padStart(2,'0')}秒`;};
 export function locate(p: Project, frame: number) {
   let start = 0;
   for (let index = 0; index < p.slides.length; index++) {

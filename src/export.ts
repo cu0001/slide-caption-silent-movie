@@ -13,11 +13,7 @@ export async function checkSupport(audio: boolean) {
 // A 60-minute stereo timeline would otherwise allocate about 1.3 GB just for PCM.
 export async function* mixAudioChunks(p: Project, abort: () => void): AsyncGenerator<AudioBuffer> {
   if (!p.audio) return;
-  const context = new AudioContext({sampleRate:48000});
-  let decoded: AudioBuffer;
-  try {
-    decoded = await loadPcmWav(p.audio.src, context);
-  } finally { await context.close(); }
+  const decoded = await loadPcmWav(p.audio.src);
   const rate = 48000, chunkFrames = rate * 5;
   const length = Math.round(totalFrames(p) / FPS * rate);
   const audioStart = Math.round(p.audio.start * FPS) / FPS;
@@ -38,6 +34,9 @@ export async function* mixAudioChunks(p: Project, abort: () => void): AsyncGener
     }
   }
 }
+// Lets the page repaint and react between frames. A timer would do the same in a visible tab, but Chrome holds
+// timers in a background tab to one a second, which turns a one-minute export into several minutes.
+const nextTask = () => new Promise<void>(resolve => {const channel = new MessageChannel(); channel.port1.onmessage = () => {channel.port1.close(); resolve();}; channel.port2.postMessage(null);});
 export async function exportWebm(project: Project, progress: (value: number) => void, signal?: AbortSignal): Promise<Blob> {
   await checkSupport(Boolean(project.audio));
   const abort = () => { if (signal?.aborted) throw new DOMException('書き出しを中止しました。', 'AbortError'); };
@@ -71,7 +70,7 @@ export async function exportWebm(project: Project, progress: (value: number) => 
       abort(); if (audioError) throw audioError;
       drawFrame(canvas, project, frame, assets);
       await video.add(frame / FPS, 1 / FPS);
-      if (frame % 8 === 0) {progress(frame / count * 0.95); await new Promise(resolve => setTimeout(resolve, 0));}
+      if (frame % 8 === 0) {progress(frame / count * 0.95); await nextTask();}
     }
     video.close(); await audioTask; if (audioError) throw audioError; abort();
     await output.finalize(); progress(1);
