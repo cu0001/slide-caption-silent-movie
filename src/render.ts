@@ -79,7 +79,9 @@ function drawCaptions(c:CanvasRenderingContext2D,s:Slide,local:number){
   }while(true);
   const lineHeight=size*1.45,width=Math.max(...lines.map(l=>c.measureText(l).width))+56,height=lines.length*lineHeight+26;
   const x=(WIDTH-width)/2,y=HEIGHT-44-height+(1-ease(p))*10;
-  c.globalAlpha*=clamp(p);c.fillStyle='rgba(12,30,34,.84)';c.beginPath();c.roundRect(x,y,width,height,14);c.fill();
+  // A see-through band lets the slide show; a soft text shadow covers what the lighter band no longer does.
+  c.globalAlpha*=clamp(p);c.fillStyle='rgba(12,30,34,.5)';c.beginPath();c.roundRect(x,y,width,height,14);c.fill();
+  c.shadowColor='rgba(0,0,0,.6)';c.shadowBlur=6;c.shadowOffsetY=1;
   c.fillStyle='#f6f5ec';c.textAlign='center';c.textBaseline='top';lines.forEach((line,i)=>c.fillText(line,WIDTH/2,y+13+i*lineHeight+(lineHeight-size)/2));
   c.restore();
 }
